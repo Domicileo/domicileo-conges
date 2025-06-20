@@ -1,16 +1,17 @@
 <!DOCTYPE html>
-<!-- Domicileo – Gestion des congés payés (v25 – données préchargées) -->
+<!-- Domicileo Services – Gestion des congés payés (v18) -->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Domicileo – Gestion des congés payés</title>
+<title>Domicileo Services – Gestion des congés payés</title>
 
 <style>
-:root{--primary:#0066cc;--secondary:#f3f6fb;--danger:#e53935;
---warning:#ffb300;--success:#4caf50;--text:#333;--bg:#fff;
---radius:6px;--gap:.5rem;--absent-day:#90caf9;--holiday-day:var(--warning);
---unpaid-day:#ffcc80}
+:root{
+  --primary:#0066cc;--secondary:#f3f6fb;--danger:#e53935;
+  --warning:#ffb300;--success:#4caf50;--text:#333;--bg:#fff;
+  --radius:6px;--gap:.5rem;--absent-day:#90caf9;--holiday-day:var(--warning);
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,Arial,sans-serif;background:var(--secondary);color:var(--text)}
 header{background:var(--primary);color:#fff;padding:1rem;text-align:center}
@@ -21,7 +22,6 @@ th,td{padding:.4rem .6rem;border:1px solid #ccc;text-align:center;font-size:.9re
 th{background:#eee;font-weight:600}
 .row-alert{background:#fdecea}
 .cell-has-days{background:var(--success);color:#fff}
-.cell-unpaid{background:var(--warning);color:#000}
 button,select{padding:.4rem .8rem;border:1px solid #ccc;border-radius:var(--radius);font:inherit}
 button{cursor:pointer;border:none}
 button.primary{background:var(--primary);color:#fff}
@@ -33,17 +33,17 @@ button.danger{background:var(--danger);color:#fff}
 .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:1000}
 .modal.show{display:flex}
 .modal-content{background:var(--bg);padding:1rem;border-radius:var(--radius);max-width:500px;width:90%;max-height:90vh;overflow-y:auto}
+.modal-content.large{max-width:95%;width:95%}
 .month-table thead th.day{width:32px}
 .absent-day{background:var(--absent-day)}
 .absent-holiday{background:var(--holiday-day)}
-.unpaid-day{background:var(--unpaid-day)}
 .wheel select{appearance:none;width:5.2rem;margin-right:.3rem;text-align:center}
 @media print{header,.no-print,.modal{display:none!important}body{background:#fff}}
 </style>
 </head>
 
 <body>
-<header><h1>Domicileo – Gestion des congés payés</h1></header>
+<header><h1>Domicileo Services – Gestion des congés payés</h1></header>
 
 <div class="container">
   <div class="no-print" style="margin-bottom:var(--gap);display:flex;flex-wrap:wrap;align-items:center;gap:var(--gap)">
@@ -52,12 +52,17 @@ button.danger{background:var(--danger);color:#fff}
     <button id="addEmployeeBtn" class="primary">Ajouter salarié</button>
     <button id="exportCsvBtn" class="secondary">Export CSV</button>
     <button id="exportJsonBtn" class="secondary">Export JSON</button>
+    <input type="file" id="importJsonInput" accept="application/json" style="display:none">
+    <button id="importJsonBtn" class="secondary">Import JSON</button>
     <button id="printBtn" class="secondary">Imprimer / PDF</button>
   </div>
 
   <div class="table-responsive">
     <table id="employeeTable">
-      <thead><tr><th>Salarié·e</th><th>Acquis</th><th>Pris</th><th>Restant</th><th class="no-print">Actions</th></tr></thead>
+      <thead><tr>
+        <th>Salarié·e</th><th>Acquis</th><th>Pris</th><th>Restant</th>
+        <th class="no-print">Actions</th>
+      </tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -67,13 +72,27 @@ button.danger{background:var(--danger);color:#fff}
   </div>
 </div>
 
-<!-- Modale gestion individuelle -->
+<!-- Modale congés individuels -->
 <div id="manageModal" class="modal" aria-hidden="true">
   <div class="modal-content">
     <h2 id="modalTitle">Gérer les congés</h2>
-    <div class="wheel"><label><strong>Départ :</strong><br><select id="startDay"></select><select id="startMonth"></select><select id="startYear"></select></label></div>
-    <div class="wheel" style="margin-top:.5rem"><label><strong>Retour :</strong><br><select id="endDay"></select><select id="endMonth"></select><select id="endYear"></select></label></div>
-    <label style="display:block;margin:0.8rem 0"><input type="checkbox" id="unpaidCheckbox"> Sans solde</label>
+
+    <div class="wheel">
+      <label><strong>Date de départ&nbsp;:</strong><br>
+        <select id="startDay"></select>
+        <select id="startMonth"></select>
+        <select id="startYear"></select>
+      </label>
+    </div>
+
+    <div class="wheel" style="margin-top:.5rem">
+      <label><strong>Date de retour&nbsp;:</strong><br>
+        <select id="endDay"></select>
+        <select id="endMonth"></select>
+        <select id="endYear"></select>
+      </label>
+    </div>
+
     <button id="addPeriodBtn" class="primary" style="margin:1rem 0">Ajouter la période</button>
     <h3>Jours posés</h3><ul id="daysList"></ul>
     <div style="text-align:right"><button id="closeModalBtn" class="secondary">Fermer</button></div>
@@ -84,103 +103,315 @@ button.danger{background:var(--danger);color:#fff}
 <div id="monthModal" class="modal" aria-hidden="true">
   <div class="modal-content large">
     <h2 id="monthModalTitle"></h2>
-    <div class="table-responsive"><table id="monthTable" class="month-table"><thead></thead><tbody></tbody></table></div>
+    <div class="table-responsive">
+      <table id="monthTable" class="month-table"><thead></thead><tbody></tbody></table>
+    </div>
     <div style="text-align:right"><button id="closeMonthBtn" class="secondary">Fermer</button></div>
   </div>
 </div>
 
 <script>
-/* ----------------- Configuration ----------------- */
-const LS_KEY   = 'domicileo_conges_data';
-const PERIOD   = '2025-2026';
-const SCHEMA_V = 1;
+/* ---------- Stockage ---------- */
+const LS_KEY = 'domicileo_conges_data';   // clé figée pour toutes les versions
+const SCHEMA_VERSION = 1;                 // incrémente si la structure change
+const DEFAULT_PERIOD = '2025-2026';
 
-/* ---------- RAW_DATA : tes 41 lignes ---------- */
-const RAW_DATA = [
-  ["ACAPANDIE, Lydia","04/08/2025","17/08/2025","Congé payé"],
-  ["BALLANGER, Marion","18/08/2025","01/09/2025","Congé payé"],
-  ["BARBEAU, Emmanuelle-Christine","04/07/2025","04/07/2025","Congé payé"],
-  ["BARBEAU, Emmanuelle-Christine","07/07/2025","27/07/2025","Congé payé"],
-  ["BAYET, Anita","18/08/2025","07/09/2025","Congé payé"],
-  ["BILY, Yohann","28/07/2025","10/08/2025","Congé payé"],
-  ["BOCAUX, Laetitia","04/08/2025","17/08/2025","Congé payé"],
-  ["BRILLAUD, Yan","21/07/2025","03/08/2025","Congé payé"],
-  ["CLUZEAU, Magali","07/07/2025","27/07/2025","Congé payé"],
-  ["COUSIN, Jeanne","07/07/2025","27/07/2025","Congé payé"],
-  ["COUTHOUIS, Sophie","15/07/2025","27/07/2025","Congé payé"],
-  ["COUTHOUIS, Sophie","11/08/2025","17/08/2025","Congé payé"],
-  ["DARD, Nathalie","18/08/2025","07/09/2025","Congé payé"],
-  ["DELIAS, Nadège","07/07/2025","13/07/2025","Congé payé"],
-  ["DELIAS, Nadège","28/07/2025","04/08/2025","Congé payé"],
-  ["DELIAS, Nadège","14/07/2025","27/07/2025","Congé payé"],
-  ["DIOP, Marie-Jeanine","15/07/2025","27/07/2025","Congé payé"],
-  ["DOS ANJOS, Stéphanie","21/07/2025","10/08/2025","Congé payé"],
-  ["FRANCOIS, Gaelle","28/07/2025","17/08/2025","Congé payé"],
-  ["GILABERT, Laura","28/07/2025","10/08/2025","Congé payé"],
-  ["GRIS, Nadeje","15/09/2025","21/09/2025","Congé payé"],
-  ["GRIS, Nadeje","20/10/2025","26/10/2025","Congé payé"],
-  ["GRIS, Nadeje","10/11/2025","16/11/2025","Congé payé"],
-  ["GRIS, Nadeje","23/06/2025","06/07/2025","Congé payé"],
-  ["HYPEAU, Magali","13/08/2025","18/08/2025","Congé sans solde"],
-  ["JACQUET, Isabelle","15/07/2025","27/07/2025","Congé payé"],
-  ["JOLLY, Jacky","10/06/2025","15/06/2025","Congé payé"],
-  ["JOLLY, Jacky","11/08/2025","24/08/2025","Congé payé"],
-  ["LAFORGUE, Julie","18/08/2025","07/09/2025","Congé payé"],
-  ["MAMES, Karine","28/07/2025","10/08/2025","Congé payé"],
-  ["MORCEAU, Nancy","06/06/2025","08/06/2025","Congé payé"],
-  ["MORCEAU, Nancy","11/08/2025","31/08/2025","Congé payé"],
-  ["NUEYE, Zoukou","28/07/2025","17/08/2025","Congé payé"],
-  ["OLIVIER, Julie","28/07/2025","10/08/2025","Congé payé"],
-  ["PEROCHEAU, Celine","11/08/2025","31/08/2025","Congé payé"],
-  ["QUEIROS DA SILVA, Francisca","07/07/2025","27/07/2025","Congé payé"],
-  ["ROUSSEAU, Mathilde","28/07/2025","03/08/2025","Congé payé"],
-  ["ROUSSEAU, Mathilde","25/08/2025","07/09/2025","Congé payé"],
-  ["ROY, Sophie","11/08/2025","31/08/2025","Congé payé"],
-  ["SICARD, Ariane","11/08/2025","31/08/2025","Congé payé"],
-  ["THIZON, Martine","28/07/2025","10/08/2025","Congé payé"]
-];
-
-/* ---------- Helpers ---------- */
-const strToDate = s => {
-  const [d,m,y] = s.split('/'); return new Date(`${y}-${m}-${d}`);
-};
-const enumerateDays = (start,end) => {
-  const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1))
-    if(d.getDay()!==0) out.push(d.toISOString().slice(0,10));
-  return out;
-};
-
-/* ---------- Init store from RAW_DATA (run once) ---------- */
-if(!localStorage.getItem(LS_KEY)){
-  const empMap=new Map(), employees=[], records={};
-  RAW_DATA.forEach(([rawName,deb,fin,motif])=>{
-    // remet "NOM, Prénom" ➜ "Prénom Nom"
-    const name = rawName.includes(',')
-      ? rawName.split(',').reverse().map(s=>s.trim()).join(' ')
-      : rawName.trim();
-    if(!empMap.has(name)){
-      empMap.set(name, 'e'+(empMap.size+1));
-      employees.push({id:empMap.get(name), name, joined:2025});
+/* Structure par défaut */
+const defaultStore = {
+  schemaVersion: SCHEMA_VERSION,
+  employees: [
+    {id:'e1',name:'Alice Dupont',joined:2025},
+    {id:'e2',name:'Bruno Martin',joined:2025},
+    {id:'e3',name:'Chloé Leroy',joined:2025}
+  ],
+  records: {
+    [DEFAULT_PERIOD]: {
+      e1:{days:[]}, e2:{days:[]}, e3:{days:[]}
     }
-    const id=empMap.get(name);
-    records[id]??={days:[], unpaid:[]};
-    const days=enumerateDays(strToDate(deb),strToDate(fin));
-    (motif.toLowerCase().includes('sans')?records[id].unpaid:records[id].days).push(...days);
-  });
+  }
+};
 
-  const initial={
-    schemaVersion:SCHEMA_V,
-    employees,
-    records:{[PERIOD]:records}
-  };
-  localStorage.setItem(LS_KEY,JSON.stringify(initial));
+/* Migration si la structure évolue entre deux versions */
+function migrate(oldData){
+  // Exemple de migration : ici, on ne change rien
+  // if(oldData.schemaVersion === 1) { ... }
+  oldData.schemaVersion = SCHEMA_VERSION;
+  return oldData;
 }
 
-/* ---------- App code (render, boutons, etc.) ---------- */
-/*  (Tout le reste de l’app : sélection d’année, renderEmployees,
-    renderCalendar, gestion modales — inchangé par rapport à ta version
-    précédente. Raccourci ici pour clarté.)                                    */
+/* Chargement / sauvegarde */
+function loadStore(){
+  const raw = localStorage.getItem(LS_KEY);
+  if(!raw) return {...defaultStore};
+  try{
+    const data = JSON.parse(raw);
+    if(data.schemaVersion !== SCHEMA_VERSION){
+      return migrate(data);
+    }
+    return data;
+  }catch(e){
+    console.error('Erreur lecture localStorage, réinit.', e);
+    return {...defaultStore};
+  }
+}
+function saveStore(){
+  localStorage.setItem(LS_KEY, JSON.stringify(store));
+}
+let store = loadStore();
 
+/* ---------- Utils ---------- */
+const TODAY=new Date();
+const diffMonths=(l,e)=>l.getMonth()-e.getMonth()+12*(l.getFullYear()-e.getFullYear());
+const periodStartYear=p=>Number(p.split('-')[0]);
+const getWorkingDays=(s,e)=>{const o=[];for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){if(d.getDay()!==0)o.push(d.toISOString().slice(0,10));}return o;};
+const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+
+/* Fériés France */
+const HCACHE={};
+const easter=y=>{const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),n=h+l-7*m+114;return new Date(y,Math.floor(n/31)-1,n%31+1);};
+const holidaysFR=y=>{if(HCACHE[y])return HCACHE[y];const E=easter(y),add=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;},fmt=d=>d.toISOString().slice(0,10);const s=new Set([`${y}-01-01`,`${y}-05-01`,`${y}-05-08`,`${y}-07-14`,`${y}-08-15`,`${y}-11-01`,`${y}-11-11`,`${y}-12-25`,fmt(add(E,1)),fmt(add(E,39)),fmt(add(E,50))]);HCACHE[y]=s;return s;}
+const isHoliday=d=>holidaysFR(new Date(d).getFullYear()).has(d);
+
+/* Droits */
+const defaultAcq=per=>{const sy=periodStartYear(per),ey=sy+1,start=new Date(`${sy}-06-01`),end=new Date(`${ey}-05-31`),last=TODAY<end?TODAY:end,months=Math.min(12,diffMonths(last,start)+1);return +(months*2.5).toFixed(1);};
+const acquired=(id,per)=>{const o=store.records?.[per]?.[id]?.acqOverride;return typeof o==='number'?o:defaultAcq(per);};
+const taken=(id,per)=> (store.records?.[per]?.[id]?.days||[]).filter(d=>!isHoliday(d)).length;
+const validateDays=(id,per,days)=>{const sy=periodStartYear(per),start=new Date(`${sy}-06-01`),end=new Date(`${sy+1}-05-31`),existing=new Set(store.records?.[per]?.[id]?.days||[]);return days.filter(d=>{const dt=new Date(d);return dt>=start&&dt<=end&&dt.getDay()!==0&&!existing.has(d);});};
+
+/* ---------- DOM ---------- */
+const yearSelect=document.getElementById('yearSelect'),
+      employeeTBody=document.querySelector('#employeeTable tbody'),
+      calendarThead=document.querySelector('#calendarTable thead'),
+      calendarTBody=document.querySelector('#calendarTable tbody');
+
+/* ---------- Périodes ---------- */
+function populateYearOptions(){
+  yearSelect.innerHTML='';
+  for(let y=2025;y<=2075;y++){
+    const o=document.createElement('option');o.value=`${y}-${y+1}`;o.textContent=o.value;yearSelect.appendChild(o);
+  }
+  yearSelect.value=DEFAULT_PERIOD;
+}
+yearSelect.onchange=()=>{renderEmployeeTable();renderCalendar();};
+
+/* ---------- Salariés ---------- */
+const activeEmployees=per=>{const sy=periodStartYear(per);return store.employees.filter(e=>(e.joined===undefined||e.joined<=sy)&&(!e.inactiveFrom||sy<e.inactiveFrom));};
+const employeeName=id=>store.employees.find(e=>e.id===id)?.name||'';
+
+/* ---------- Date wheels ---------- */
+const dayOpts=[...Array(31)].map((_,i)=>String(i+1).padStart(2,'0'));
+const monthOpts=[...Array(12)].map((_,i)=>String(i+1).padStart(2,'0'));
+function fillSelect(sel,vals){sel.innerHTML=vals.map(v=>`<option value="${v}">${v}</option>`).join('');}
+function initDateWheels(){
+  const sy=periodStartYear(yearSelect.value),years=[sy,sy+1].map(String);
+  ['start','end'].forEach(p=>{
+    fillSelect(document.getElementById(p+'Day'),dayOpts);
+    fillSelect(document.getElementById(p+'Month'),monthOpts);
+    fillSelect(document.getElementById(p+'Year'),years);
+  });
+}
+function readWheel(prefix){
+  const d=document.getElementById(prefix+'Day').value,
+        m=document.getElementById(prefix+'Month').value,
+        y=document.getElementById(prefix+'Year').value;
+  return `${y}-${m}-${d}`;
+}
+
+/* ---------- Tableau synthèse ---------- */
+function renderEmployeeTable(){
+  const per=yearSelect.value;
+  employeeTBody.innerHTML='';
+  activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    const acq=acquired(emp.id,per),tk=taken(emp.id,per),rest=+(acq-tk).toFixed(1);
+    const tr=document.createElement('tr');
+    if(rest<0)tr.classList.add('row-alert');
+    tr.innerHTML=`<td>${emp.name}</td><td>${acq}</td><td>${tk}</td><td>${rest}</td>
+      <td class="no-print">
+        <button class="primary manageBtn" data-id="${emp.id}">Gérer</button>
+        <button class="secondary editAcqBtn" data-id="${emp.id}">Acquis</button>
+        <button class="danger delEmpBtn" data-id="${emp.id}">Suppr</button>
+      </td>`;
+    employeeTBody.appendChild(tr);
+  });
+  document.querySelectorAll('.manageBtn').forEach(b=>b.onclick=()=>openModal(b.dataset.id));
+  document.querySelectorAll('.editAcqBtn').forEach(b=>b.onclick=()=>editAcq(b.dataset.id));
+  document.querySelectorAll('.delEmpBtn').forEach(b=>b.onclick=()=>deleteEmployee(b.dataset.id));
+}
+
+/* ---------- Éditer acquis ---------- */
+function editAcq(empId){
+  const per=yearSelect.value,cur=acquired(empId,per);
+  const val=prompt(`Jours acquis pour ${employeeName(empId)} (${per}) :`,cur);
+  if(val===null)return;
+  const num=parseFloat(val.replace(',','.'));
+  if(isNaN(num)||num<0)return alert('Valeur invalide');
+  store.records[per]=store.records[per]||{};
+  store.records[per][empId]=store.records[per][empId]||{days:[]};
+  store.records[per][empId].acqOverride=num;
+  saveStore();renderEmployeeTable();
+}
+
+/* ---------- Suppression logique ---------- */
+function deleteEmployee(empId){
+  if(!confirm('Supprimer à partir de cette période ?'))return;
+  const startY=periodStartYear(yearSelect.value);
+  const emp=store.employees.find(e=>e.id===empId);
+  if(emp)emp.inactiveFrom=startY;
+  for(const per in store.records){
+    if(periodStartYear(per)>=startY){
+      delete store.records[per][empId];
+    }
+  }
+  saveStore();renderEmployeeTable();renderCalendar();
+}
+
+/* ---------- Calendrier annuel ---------- */
+const idxToMonth=i=>(i+5)%12;
+function renderCalendar(){
+  const per=yearSelect.value;
+  const months=['Juin','Juil','Août','Sep','Oct','Nov','Déc','Jan','Fév','Mar','Avr','Mai'];
+  calendarThead.innerHTML='<tr><th>Salarié·e</th>'+months.map(m=>`<th class="month">${m}</th>`).join('')+'</tr>';
+  calendarTBody.innerHTML='';
+  activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    const tr=document.createElement('tr');tr.innerHTML=`<td>${emp.name}</td>`;
+    months.forEach((_,idx)=>{
+      const td=document.createElement('td');
+      const days=store.records?.[per]?.[emp.id]?.days||[];
+      const count=days.filter(d=>new Date(d).getMonth()===idxToMonth(idx)&&!isHoliday(d)).length;
+      if(count){
+        td.textContent=count;
+        td.classList.add('cell-has-days');
+        td.title=days.filter(d=>new Date(d).getMonth()===idxToMonth(idx)).join(', ');
+      }
+      tr.appendChild(td);
+    });
+    calendarTBody.appendChild(tr);
+  });
+  attachMonthHeaderEvents();
+}
+
+/* ---------- Modale mensuelle ---------- */
+const monthModal=document.getElementById('monthModal'),
+      monthModalTitle=document.getElementById('monthModalTitle'),
+      monthTableHead=document.querySelector('#monthTable thead'),
+      monthTableBody=document.querySelector('#monthTable tbody');
+function attachMonthHeaderEvents(){
+  document.querySelectorAll('#calendarTable thead th.month').forEach((th,idx)=>th.onclick=()=>openMonthModal(idx));
+}
+function openMonthModal(idx){
+  const per=yearSelect.value,sy=periodStartYear(per),jsM=idxToMonth(idx),yr=jsM>=5?sy:sy+1;
+  const names=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  monthModalTitle.textContent=`${names[jsM]} ${yr}`;
+  const tot=daysInMonth(yr,jsM);
+  let head='<tr><th>Salarié·e</th>';
+  for(let d=1;d<=tot;d++)head+=`<th class="day">${d}</th>`;
+  head+='</tr>';monthTableHead.innerHTML=head;monthTableBody.innerHTML='';
+  activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    const tr=document.createElement('tr');let row=`<td>${emp.name}</td>`;
+    const abs=new Set((store.records?.[per]?.[emp.id]?.days||[]).filter(d=>{const dt=new Date(d);return dt.getFullYear()===yr&&dt.getMonth()===jsM;}));
+    for(let d=1;d<=tot;d++){
+      const ds=`${yr}-${String(jsM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      row+=abs.has(ds)?`<td class="${isHoliday(ds)?'absent-holiday':'absent-day'}" title="Congé">C</td>`:'<td></td>';
+    }
+    tr.innerHTML=row;monthTableBody.appendChild(tr);
+  });
+  monthModal.classList.add('show');monthModal.setAttribute('aria-hidden','false');
+}
+document.getElementById('closeMonthBtn').onclick=()=>{monthModal.classList.remove('show');monthModal.setAttribute('aria-hidden','true');};
+
+/* ---------- Modale congés individuels ---------- */
+const manageModal=document.getElementById('manageModal'),
+      modalTitle=document.getElementById('modalTitle'),
+      daysListUl=document.getElementById('daysList');
+let currentEmpId=null;
+
+function openModal(id){
+  currentEmpId=id;
+  modalTitle.textContent=`Gérer les congés – ${employeeName(id)}`;
+  initDateWheels();
+  renderDaysList();
+  manageModal.classList.add('show');manageModal.setAttribute('aria-hidden','false');
+}
+document.getElementById('closeModalBtn').onclick=()=>{manageModal.classList.remove('show');manageModal.setAttribute('aria-hidden','true');};
+
+function renderDaysList(){
+  const per=yearSelect.value,days=store.records?.[per]?.[currentEmpId]?.days||[];
+  daysListUl.innerHTML='';
+  days.slice().sort().forEach(d=>{
+    const li=document.createElement('li');li.textContent=d+(isHoliday(d)?' (férié)':'');
+    const del=document.createElement('button');del.textContent='Suppr';del.className='danger';
+    del.onclick=()=>{if(confirm('Supprimer ce jour ?')){store.records[per][currentEmpId].days=store.records[per][currentEmpId].days.filter(x=>x!==d);saveStore();renderDaysList();renderEmployeeTable();renderCalendar();}};
+    li.appendChild(del);daysListUl.appendChild(li);
+  });
+}
+
+document.getElementById('addPeriodBtn').onclick=()=>{
+  const s=readWheel('start'),e=readWheel('end');
+  if(!s||!e)return alert('Choisir les deux dates.');
+  const st=new Date(s),ed=new Date(e);
+  if(ed<st)return alert('Retour après départ');
+  const per=yearSelect.value,days=validateDays(currentEmpId,per,getWorkingDays(st,ed));
+  if(!days.length)return alert('Aucun jour valable');
+  store.records[per]=store.records[per]||{};
+  store.records[per][currentEmpId]=store.records[per][currentEmpId]||{days:[]};
+  store.records[per][currentEmpId].days.push(...days);
+  saveStore();renderDaysList();renderEmployeeTable();renderCalendar();
+};
+
+/* ---------- Ajout salarié ---------- */
+document.getElementById('addEmployeeBtn').onclick=()=>{
+  const name=prompt('Nom du / de la salarié·e :');
+  if(!name)return;
+  store.employees.push({id:'e'+Date.now(),name,joined:periodStartYear(yearSelect.value)});
+  saveStore();renderEmployeeTable();renderCalendar();
+};
+
+/* ---------- Export CSV ---------- */
+document.getElementById('exportCsvBtn').onclick=()=>{
+  const per=yearSelect.value;
+  let csv='Salarié,Acquis,Pris,Restant,Jours détaillés\n';
+  activeEmployees(per).forEach(emp=>{
+    const acq=acquired(emp.id,per),tk=taken(emp.id,per),rest=acq-tk,det=(store.records?.[per]?.[emp.id]?.days||[]).join(' ');
+    csv+=`${emp.name},${acq},${tk},${rest},${det}\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`conges_${per}.csv`;link.click();
+};
+
+/* ---------- Export / Import JSON ---------- */
+document.getElementById('exportJsonBtn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(store)],{type:'application/json'});
+  const link=document.createElement('a');
+  link.href=URL.createObjectURL(blob);
+  link.download='conges_backup.json';
+  link.click();
+};
+
+document.getElementById('importJsonBtn').onclick=()=>
+  document.getElementById('importJsonInput').click();
+
+document.getElementById('importJsonInput').onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      // Option : vérifier data.schemaVersion et migrer si besoin
+      localStorage.setItem(LS_KEY, JSON.stringify(data));
+      location.reload();
+    }catch(err){
+      alert('Fichier JSON invalide');
+    }
+  };
+  reader.readAsText(file);
+};
+
+/* ---------- Impression ---------- */
+document.getElementById('printBtn').onclick=()=>window.print();
+
+/* ---------- Init ---------- */
+populateYearOptions();renderEmployeeTable();renderCalendar();
 </script>
 </body>
 </html>
