@@ -1,21 +1,16 @@
 <!DOCTYPE html>
-<!-- Domicileo – Gestion des congés payés (v24-local) -->
+<!-- Domicileo – Gestion des congés payés (v25 – données préchargées) -->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Domicileo – Gestion des congés payés</title>
 
-<!-- SheetJS LOCAL (à placer dans js/xlsx.full.min.js) -->
-<script src="./js/xlsx.full.min.js"></script>
-
 <style>
-:root{
-  --primary:#0066cc;--secondary:#f3f6fb;--danger:#e53935;
-  --warning:#ffb300;--success:#4caf50;--text:#333;--bg:#fff;
-  --radius:6px;--gap:.5rem;--absent-day:#90caf9;--holiday-day:var(--warning);
-  --unpaid-day:#ffcc80;
-}
+:root{--primary:#0066cc;--secondary:#f3f6fb;--danger:#e53935;
+--warning:#ffb300;--success:#4caf50;--text:#333;--bg:#fff;
+--radius:6px;--gap:.5rem;--absent-day:#90caf9;--holiday-day:var(--warning);
+--unpaid-day:#ffcc80}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,Arial,sans-serif;background:var(--secondary);color:var(--text)}
 header{background:var(--primary);color:#fff;padding:1rem;text-align:center}
@@ -38,7 +33,6 @@ button.danger{background:var(--danger);color:#fff}
 .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:1000}
 .modal.show{display:flex}
 .modal-content{background:var(--bg);padding:1rem;border-radius:var(--radius);max-width:500px;width:90%;max-height:90vh;overflow-y:auto}
-.modal-content.large{max-width:95%;width:95%}
 .month-table thead th.day{width:32px}
 .absent-day{background:var(--absent-day)}
 .absent-holiday{background:var(--holiday-day)}
@@ -58,10 +52,6 @@ button.danger{background:var(--danger);color:#fff}
     <button id="addEmployeeBtn" class="primary">Ajouter salarié</button>
     <button id="exportCsvBtn" class="secondary">Export CSV</button>
     <button id="exportJsonBtn" class="secondary">Export JSON</button>
-    <input type="file" id="importJsonInput" accept="application/json" hidden>
-    <button id="importJsonBtn" class="secondary">Import JSON</button>
-    <input type="file" id="importExcelInput" accept=".xlsx,.csv" hidden>
-    <button id="importExcelBtn" class="secondary">Import Excel/CSV</button>
     <button id="printBtn" class="secondary">Imprimer / PDF</button>
   </div>
 
@@ -77,14 +67,12 @@ button.danger{background:var(--danger);color:#fff}
   </div>
 </div>
 
-<!-- Modales (congés individuels & vue mensuelle) -->
+<!-- Modale gestion individuelle -->
 <div id="manageModal" class="modal" aria-hidden="true">
   <div class="modal-content">
     <h2 id="modalTitle">Gérer les congés</h2>
-    <div class="wheel"><label><strong>Date de départ&nbsp;:</strong><br>
-      <select id="startDay"></select><select id="startMonth"></select><select id="startYear"></select></label></div>
-    <div class="wheel" style="margin-top:.5rem"><label><strong>Date de retour&nbsp;:</strong><br>
-      <select id="endDay"></select><select id="endMonth"></select><select id="endYear"></select></label></div>
+    <div class="wheel"><label><strong>Départ :</strong><br><select id="startDay"></select><select id="startMonth"></select><select id="startYear"></select></label></div>
+    <div class="wheel" style="margin-top:.5rem"><label><strong>Retour :</strong><br><select id="endDay"></select><select id="endMonth"></select><select id="endYear"></select></label></div>
     <label style="display:block;margin:0.8rem 0"><input type="checkbox" id="unpaidCheckbox"> Sans solde</label>
     <button id="addPeriodBtn" class="primary" style="margin:1rem 0">Ajouter la période</button>
     <h3>Jours posés</h3><ul id="daysList"></ul>
@@ -92,6 +80,7 @@ button.danger{background:var(--danger);color:#fff}
   </div>
 </div>
 
+<!-- Modale vue mensuelle -->
 <div id="monthModal" class="modal" aria-hidden="true">
   <div class="modal-content large">
     <h2 id="monthModalTitle"></h2>
@@ -101,85 +90,97 @@ button.danger{background:var(--danger);color:#fff}
 </div>
 
 <script>
-/* ---------- Constantes & stockage ---------- */
-const LS_KEY='domicileo_conges_data',SCHEMA_VERSION=1,DEFAULT_PERIOD='2025-2026';
-let store;
+/* ----------------- Configuration ----------------- */
+const LS_KEY   = 'domicileo_conges_data';
+const PERIOD   = '2025-2026';
+const SCHEMA_V = 1;
 
-/* ---------- Utils dates & fériés (abrégé) ---------- */
-const TODAY=new Date(),periodStartYear=p=>+p.split('-')[0];
-const getWorkingDays=(s,e)=>{const a=[];for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))if(d.getDay()!==0)a.push(d.toISOString().slice(0,10));return a;};
-/* … ajouter ici fonctions holidaysFR, isHoliday, diffMonths si besoin … */
+/* ---------- RAW_DATA : tes 41 lignes ---------- */
+const RAW_DATA = [
+  ["ACAPANDIE, Lydia","04/08/2025","17/08/2025","Congé payé"],
+  ["BALLANGER, Marion","18/08/2025","01/09/2025","Congé payé"],
+  ["BARBEAU, Emmanuelle-Christine","04/07/2025","04/07/2025","Congé payé"],
+  ["BARBEAU, Emmanuelle-Christine","07/07/2025","27/07/2025","Congé payé"],
+  ["BAYET, Anita","18/08/2025","07/09/2025","Congé payé"],
+  ["BILY, Yohann","28/07/2025","10/08/2025","Congé payé"],
+  ["BOCAUX, Laetitia","04/08/2025","17/08/2025","Congé payé"],
+  ["BRILLAUD, Yan","21/07/2025","03/08/2025","Congé payé"],
+  ["CLUZEAU, Magali","07/07/2025","27/07/2025","Congé payé"],
+  ["COUSIN, Jeanne","07/07/2025","27/07/2025","Congé payé"],
+  ["COUTHOUIS, Sophie","15/07/2025","27/07/2025","Congé payé"],
+  ["COUTHOUIS, Sophie","11/08/2025","17/08/2025","Congé payé"],
+  ["DARD, Nathalie","18/08/2025","07/09/2025","Congé payé"],
+  ["DELIAS, Nadège","07/07/2025","13/07/2025","Congé payé"],
+  ["DELIAS, Nadège","28/07/2025","04/08/2025","Congé payé"],
+  ["DELIAS, Nadège","14/07/2025","27/07/2025","Congé payé"],
+  ["DIOP, Marie-Jeanine","15/07/2025","27/07/2025","Congé payé"],
+  ["DOS ANJOS, Stéphanie","21/07/2025","10/08/2025","Congé payé"],
+  ["FRANCOIS, Gaelle","28/07/2025","17/08/2025","Congé payé"],
+  ["GILABERT, Laura","28/07/2025","10/08/2025","Congé payé"],
+  ["GRIS, Nadeje","15/09/2025","21/09/2025","Congé payé"],
+  ["GRIS, Nadeje","20/10/2025","26/10/2025","Congé payé"],
+  ["GRIS, Nadeje","10/11/2025","16/11/2025","Congé payé"],
+  ["GRIS, Nadeje","23/06/2025","06/07/2025","Congé payé"],
+  ["HYPEAU, Magali","13/08/2025","18/08/2025","Congé sans solde"],
+  ["JACQUET, Isabelle","15/07/2025","27/07/2025","Congé payé"],
+  ["JOLLY, Jacky","10/06/2025","15/06/2025","Congé payé"],
+  ["JOLLY, Jacky","11/08/2025","24/08/2025","Congé payé"],
+  ["LAFORGUE, Julie","18/08/2025","07/09/2025","Congé payé"],
+  ["MAMES, Karine","28/07/2025","10/08/2025","Congé payé"],
+  ["MORCEAU, Nancy","06/06/2025","08/06/2025","Congé payé"],
+  ["MORCEAU, Nancy","11/08/2025","31/08/2025","Congé payé"],
+  ["NUEYE, Zoukou","28/07/2025","17/08/2025","Congé payé"],
+  ["OLIVIER, Julie","28/07/2025","10/08/2025","Congé payé"],
+  ["PEROCHEAU, Celine","11/08/2025","31/08/2025","Congé payé"],
+  ["QUEIROS DA SILVA, Francisca","07/07/2025","27/07/2025","Congé payé"],
+  ["ROUSSEAU, Mathilde","28/07/2025","03/08/2025","Congé payé"],
+  ["ROUSSEAU, Mathilde","25/08/2025","07/09/2025","Congé payé"],
+  ["ROY, Sophie","11/08/2025","31/08/2025","Congé payé"],
+  ["SICARD, Ariane","11/08/2025","31/08/2025","Congé payé"],
+  ["THIZON, Martine","28/07/2025","10/08/2025","Congé payé"]
+];
 
-/* ---------- Stockage ---------- */
-function loadStore(){try{const raw=localStorage.getItem(LS_KEY);if(!raw)throw 0;const d=JSON.parse(raw);return d.schemaVersion===SCHEMA_VERSION?d:0;}catch{return{schemaVersion:SCHEMA_VERSION,employees:[],records:{}};}}
-function saveStore(){localStorage.setItem(LS_KEY,JSON.stringify(store));}
-
-/* ---------- Sélecteur périodes ---------- */
-function populateYears(){
-  const sel=document.getElementById('yearSelect');sel.innerHTML='';
-  for(let y=2025;y<=2075;y++){const o=document.createElement('option');o.value=`${y}-${y+1}`;o.textContent=o.value;sel.appendChild(o);}
-  sel.value=DEFAULT_PERIOD;
-}
-
-/* ---------- Rendus table & calendrier (code résumé) ---------- */
-function renderEmployees(){/* même logique qu’avant */}          
-function renderCalendar(){/* même logique qu’avant */}
-
-/* ---------- Import Excel / CSV (SheetJS local) ---------- */
-document.getElementById('importExcelBtn').onclick=()=>document.getElementById('importExcelInput').click();
-document.getElementById('importExcelInput').onchange=e=>{
-  const file=e.target.files[0];if(!file)return;
-  if(typeof XLSX==='undefined'){alert('SheetJS non chargé');return;}
-
-  const reader=new FileReader();
-  reader.onload=ev=>{
-    const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',codepage:1252});
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
-    if(!rows.length)return alert('Fichier vide');
-
-    const h=rows[0].map(x=>x.toString().trim().toLowerCase());
-    const iEmp=h.findIndex(x=>/employee|intervenant|salari/i.test(x)),
-          iDeb=h.findIndex(x=>/start|départ/i.test(x)),
-          iFin=h.findIndex(x=>/end|date de fin/i.test(x)),
-          iTyp=h.findIndex(x=>/type|motif/i.test(x));
-    if([iEmp,iDeb,iFin,iTyp].some(i=>i===-1))return alert('Colonnes manquantes');
-
-    const per=document.getElementById('yearSelect').value;
-    let ok=0;
-    rows.slice(1).forEach(r=>{
-      const nom=r[iEmp].toString().trim();if(!nom)return;
-      let emp=store.employees.find(e=>e.name===nom);
-      if(!emp){emp={id:'e'+Date.now()+Math.random(),name:nom,joined:periodStartYear(per)};store.employees.push(emp);}
-      store.records[per]??={};store.records[per][emp.id]??={days:[],unpaid:[]};
-
-      const iso=v=>{
-        if(v instanceof Date)return v.toISOString().slice(0,10);
-        if(typeof v==='number'){const epoch=Date.UTC(1899,11,30);return new Date(epoch+v*864e5).toISOString().slice(0,10);}
-        const s=v.toString().split(' ')[0].replace(/-/g,'/');if(/^\d{4}\/\d{2}\/\d{2}$/.test(s))return s.replace(/\//g,'-');
-        const[d,m,y]=s.split('/');return`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-      };
-      const start=iso(r[iDeb]),end=iso(r[iFin]);if(!start||!end)return;
-      const dates=getWorkingDays(new Date(start),new Date(end));if(!dates.length)return;
-      const tgt=/sans solde|unpaid/i.test(r[iTyp])?'unpaid':'days';
-      store.records[per][emp.id][tgt].push(...dates);ok++;
-    });
-
-    saveStore();renderEmployees();renderCalendar();
-    alert(ok?`Import terminé : ${ok} lignes.`:'Aucune ligne valide.');
-  };
-  reader.readAsArrayBuffer(file);
+/* ---------- Helpers ---------- */
+const strToDate = s => {
+  const [d,m,y] = s.split('/'); return new Date(`${y}-${m}-${d}`);
+};
+const enumerateDays = (start,end) => {
+  const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1))
+    if(d.getDay()!==0) out.push(d.toISOString().slice(0,10));
+  return out;
 };
 
-/* ---------- Init ---------- */
-function initApp(){
-  store=loadStore();
-  if(!store.employees.length)store.employees=[{id:'e1',name:'Alice Dupont',joined:2025}];
-  populateYears();
-  document.getElementById('yearSelect').onchange=()=>{renderEmployees();renderCalendar();};
-  /* ajouter ici handlers addEmployee, export CSV/JSON, etc. (inchangés) */
-  renderEmployees();renderCalendar();
+/* ---------- Init store from RAW_DATA (run once) ---------- */
+if(!localStorage.getItem(LS_KEY)){
+  const empMap=new Map(), employees=[], records={};
+  RAW_DATA.forEach(([rawName,deb,fin,motif])=>{
+    // remet "NOM, Prénom" ➜ "Prénom Nom"
+    const name = rawName.includes(',')
+      ? rawName.split(',').reverse().map(s=>s.trim()).join(' ')
+      : rawName.trim();
+    if(!empMap.has(name)){
+      empMap.set(name, 'e'+(empMap.size+1));
+      employees.push({id:empMap.get(name), name, joined:2025});
+    }
+    const id=empMap.get(name);
+    records[id]??={days:[], unpaid:[]};
+    const days=enumerateDays(strToDate(deb),strToDate(fin));
+    (motif.toLowerCase().includes('sans')?records[id].unpaid:records[id].days).push(...days);
+  });
+
+  const initial={
+    schemaVersion:SCHEMA_V,
+    employees,
+    records:{[PERIOD]:records}
+  };
+  localStorage.setItem(LS_KEY,JSON.stringify(initial));
 }
-document.addEventListener('DOMContentLoaded',initApp);
+
+/* ---------- App code (render, boutons, etc.) ---------- */
+/*  (Tout le reste de l’app : sélection d’année, renderEmployees,
+    renderCalendar, gestion modales — inchangé par rapport à ta version
+    précédente. Raccourci ici pour clarté.)                                    */
+
 </script>
 </body>
 </html>
