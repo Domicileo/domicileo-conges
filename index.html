@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Domicileo Services – Gestion des congés payés (v18) -->
+<!-- Domicileo Services – Gestion des congés payés (v19) -->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -11,6 +11,7 @@
   --primary:#0066cc;--secondary:#f3f6fb;--danger:#e53935;
   --warning:#ffb300;--success:#4caf50;--text:#333;--bg:#fff;
   --radius:6px;--gap:.5rem;--absent-day:#90caf9;--holiday-day:var(--warning);
+  --unpaid-day:#ffcc80;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,Arial,sans-serif;background:var(--secondary);color:var(--text)}
@@ -22,6 +23,7 @@ th,td{padding:.4rem .6rem;border:1px solid #ccc;text-align:center;font-size:.9re
 th{background:#eee;font-weight:600}
 .row-alert{background:#fdecea}
 .cell-has-days{background:var(--success);color:#fff}
+.cell-unpaid{background:var(--warning);color:#000}
 button,select{padding:.4rem .8rem;border:1px solid #ccc;border-radius:var(--radius);font:inherit}
 button{cursor:pointer;border:none}
 button.primary{background:var(--primary);color:#fff}
@@ -37,6 +39,7 @@ button.danger{background:var(--danger);color:#fff}
 .month-table thead th.day{width:32px}
 .absent-day{background:var(--absent-day)}
 .absent-holiday{background:var(--holiday-day)}
+.unpaid-day{background:var(--unpaid-day)}
 .wheel select{appearance:none;width:5.2rem;margin-right:.3rem;text-align:center}
 @media print{header,.no-print,.modal{display:none!important}body{background:#fff}}
 </style>
@@ -93,6 +96,10 @@ button.danger{background:var(--danger);color:#fff}
       </label>
     </div>
 
+    <label style="display:block;margin:0.8rem 0">
+      <input type="checkbox" id="unpaidCheckbox"> Sans solde
+    </label>
+
     <button id="addPeriodBtn" class="primary" style="margin:1rem 0">Ajouter la période</button>
     <h3>Jours posés</h3><ul id="daysList"></ul>
     <div style="text-align:right"><button id="closeModalBtn" class="secondary">Fermer</button></div>
@@ -112,59 +119,37 @@ button.danger{background:var(--danger);color:#fff}
 
 <script>
 /* ---------- Stockage ---------- */
-const LS_KEY = 'domicileo_conges_data';   // clé figée pour toutes les versions
-const SCHEMA_VERSION = 1;                 // incrémente si la structure change
+const LS_KEY = 'domicileo_conges_data';
+const SCHEMA_VERSION = 1;
 const DEFAULT_PERIOD = '2025-2026';
 
-/* Structure par défaut */
+/* Store par défaut */
 const defaultStore = {
   schemaVersion: SCHEMA_VERSION,
-  employees: [
-    {id:'e1',name:'Alice Dupont',joined:2025},
-    {id:'e2',name:'Bruno Martin',joined:2025},
-    {id:'e3',name:'Chloé Leroy',joined:2025}
-  ],
-  records: {
-    [DEFAULT_PERIOD]: {
-      e1:{days:[]}, e2:{days:[]}, e3:{days:[]}
-    }
-  }
+  employees: [],
+  records: {}
 };
 
-/* Migration si la structure évolue entre deux versions */
-function migrate(oldData){
-  // Exemple de migration : ici, on ne change rien
-  // if(oldData.schemaVersion === 1) { ... }
-  oldData.schemaVersion = SCHEMA_VERSION;
-  return oldData;
-}
-
-/* Chargement / sauvegarde */
+/* Migration (inchangée) */
+function migrate(old){old.schemaVersion = SCHEMA_VERSION;return old;}
 function loadStore(){
   const raw = localStorage.getItem(LS_KEY);
   if(!raw) return {...defaultStore};
   try{
     const data = JSON.parse(raw);
-    if(data.schemaVersion !== SCHEMA_VERSION){
-      return migrate(data);
-    }
+    if(data.schemaVersion !== SCHEMA_VERSION) return migrate(data);
     return data;
-  }catch(e){
-    console.error('Erreur lecture localStorage, réinit.', e);
-    return {...defaultStore};
-  }
+  }catch(e){return {...defaultStore};}
 }
-function saveStore(){
-  localStorage.setItem(LS_KEY, JSON.stringify(store));
-}
+function saveStore(){localStorage.setItem(LS_KEY, JSON.stringify(store));}
 let store = loadStore();
 
 /* ---------- Utils ---------- */
-const TODAY=new Date();
-const diffMonths=(l,e)=>l.getMonth()-e.getMonth()+12*(l.getFullYear()-e.getFullYear());
-const periodStartYear=p=>Number(p.split('-')[0]);
-const getWorkingDays=(s,e)=>{const o=[];for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){if(d.getDay()!==0)o.push(d.toISOString().slice(0,10));}return o;};
-const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+const TODAY = new Date();
+const diffMonths = (l,e)=>l.getMonth()-e.getMonth()+12*(l.getFullYear()-e.getFullYear());
+const periodStartYear = p => Number(p.split('-')[0]);
+const getWorkingDays = (s,e)=>{const o=[];for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){if(d.getDay()!==0)o.push(d.toISOString().slice(0,10));}return o;};
+const daysInMonth = (y,m)=>new Date(y,m+1,0).getDate();
 
 /* Fériés France */
 const HCACHE={};
@@ -174,11 +159,11 @@ const isHoliday=d=>holidaysFR(new Date(d).getFullYear()).has(d);
 
 /* Droits */
 const defaultAcq=per=>{const sy=periodStartYear(per),ey=sy+1,start=new Date(`${sy}-06-01`),end=new Date(`${ey}-05-31`),last=TODAY<end?TODAY:end,months=Math.min(12,diffMonths(last,start)+1);return +(months*2.5).toFixed(1);};
-const acquired=(id,per)=>{const o=store.records?.[per]?.[id]?.acqOverride;return typeof o==='number'?o:defaultAcq(per);};
-const taken=(id,per)=> (store.records?.[per]?.[id]?.days||[]).filter(d=>!isHoliday(d)).length;
-const validateDays=(id,per,days)=>{const sy=periodStartYear(per),start=new Date(`${sy}-06-01`),end=new Date(`${sy+1}-05-31`),existing=new Set(store.records?.[per]?.[id]?.days||[]);return days.filter(d=>{const dt=new Date(d);return dt>=start&&dt<=end&&dt.getDay()!==0&&!existing.has(d);});};
+const acquired = (id,per)=>{const o=store.records?.[per]?.[id]?.acqOverride;return typeof o==='number'?o:defaultAcq(per);};
+const taken = (id,per)=> (store.records?.[per]?.[id]?.days||[]).filter(d=>!isHoliday(d)).length;
+const validateDays=(id,per,days)=>{const sy=periodStartYear(per),start=new Date(`${sy}-06-01`),end=new Date(`${sy+1}-05-31`),allPaid=new Set(store.records?.[per]?.[id]?.days||[]),allUnpaid=new Set(store.records?.[per]?.[id]?.unpaid||[]);return days.filter(d=>{const dt=new Date(d);return dt>=start&&dt<=end&&dt.getDay()!==0&&!allPaid.has(d)&&!allUnpaid.has(d);});};
 
-/* ---------- DOM ---------- */
+/* ---------- DOM refs ---------- */
 const yearSelect=document.getElementById('yearSelect'),
       employeeTBody=document.querySelector('#employeeTable tbody'),
       calendarThead=document.querySelector('#calendarTable thead'),
@@ -186,16 +171,19 @@ const yearSelect=document.getElementById('yearSelect'),
 
 /* ---------- Périodes ---------- */
 function populateYearOptions(){
-  yearSelect.innerHTML='';
   for(let y=2025;y<=2075;y++){
-    const o=document.createElement('option');o.value=`${y}-${y+1}`;o.textContent=o.value;yearSelect.appendChild(o);
+    const o = document.createElement('option');
+    o.value=`${y}-${y+1}`;o.textContent=o.value;yearSelect.appendChild(o);
   }
   yearSelect.value=DEFAULT_PERIOD;
 }
 yearSelect.onchange=()=>{renderEmployeeTable();renderCalendar();};
 
 /* ---------- Salariés ---------- */
-const activeEmployees=per=>{const sy=periodStartYear(per);return store.employees.filter(e=>(e.joined===undefined||e.joined<=sy)&&(!e.inactiveFrom||sy<e.inactiveFrom));};
+const activeEmployees = per => {
+  const sy=periodStartYear(per);
+  return (store.employees||[]).filter(e=>(e.joined===undefined||e.joined<=sy)&&(!e.inactiveFrom||sy<e.inactiveFrom));
+};
 const employeeName=id=>store.employees.find(e=>e.id===id)?.name||'';
 
 /* ---------- Date wheels ---------- */
@@ -218,10 +206,15 @@ function readWheel(prefix){
 }
 
 /* ---------- Tableau synthèse ---------- */
+function ensureRecord(per,id){
+  store.records[per]=store.records[per]||{};
+  store.records[per][id]=store.records[per][id]||{days:[],unpaid:[]};
+}
 function renderEmployeeTable(){
   const per=yearSelect.value;
   employeeTBody.innerHTML='';
   activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    ensureRecord(per,emp.id);
     const acq=acquired(emp.id,per),tk=taken(emp.id,per),rest=+(acq-tk).toFixed(1);
     const tr=document.createElement('tr');
     if(rest<0)tr.classList.add('row-alert');
@@ -245,13 +238,12 @@ function editAcq(empId){
   if(val===null)return;
   const num=parseFloat(val.replace(',','.'));
   if(isNaN(num)||num<0)return alert('Valeur invalide');
-  store.records[per]=store.records[per]||{};
-  store.records[per][empId]=store.records[per][empId]||{days:[]};
+  ensureRecord(per,empId);
   store.records[per][empId].acqOverride=num;
   saveStore();renderEmployeeTable();
 }
 
-/* ---------- Suppression logique ---------- */
+/* ---------- Suppression ---------- */
 function deleteEmployee(empId){
   if(!confirm('Supprimer à partir de cette période ?'))return;
   const startY=periodStartYear(yearSelect.value);
@@ -273,15 +265,17 @@ function renderCalendar(){
   calendarThead.innerHTML='<tr><th>Salarié·e</th>'+months.map(m=>`<th class="month">${m}</th>`).join('')+'</tr>';
   calendarTBody.innerHTML='';
   activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    ensureRecord(per,emp.id);
     const tr=document.createElement('tr');tr.innerHTML=`<td>${emp.name}</td>`;
     months.forEach((_,idx)=>{
       const td=document.createElement('td');
-      const days=store.records?.[per]?.[emp.id]?.days||[];
-      const count=days.filter(d=>new Date(d).getMonth()===idxToMonth(idx)&&!isHoliday(d)).length;
-      if(count){
-        td.textContent=count;
-        td.classList.add('cell-has-days');
-        td.title=days.filter(d=>new Date(d).getMonth()===idxToMonth(idx)).join(', ');
+      const rec=store.records[per][emp.id];
+      const paid=rec.days.filter(d=>new Date(d).getMonth()===idxToMonth(idx) && !isHoliday(d));
+      const unpaid=rec.unpaid.filter(d=>new Date(d).getMonth()===idxToMonth(idx));
+      if(paid.length){
+        td.textContent=paid.length;td.classList.add('cell-has-days');td.title=[...paid,...unpaid].join(', ');
+      }else if(unpaid.length){
+        td.classList.add('cell-unpaid');td.title=unpaid.join(', ');
       }
       tr.appendChild(td);
     });
@@ -307,11 +301,16 @@ function openMonthModal(idx){
   for(let d=1;d<=tot;d++)head+=`<th class="day">${d}</th>`;
   head+='</tr>';monthTableHead.innerHTML=head;monthTableBody.innerHTML='';
   activeEmployees(per).sort((a,b)=>a.name.localeCompare(b.name)).forEach(emp=>{
+    ensureRecord(per,emp.id);
     const tr=document.createElement('tr');let row=`<td>${emp.name}</td>`;
-    const abs=new Set((store.records?.[per]?.[emp.id]?.days||[]).filter(d=>{const dt=new Date(d);return dt.getFullYear()===yr&&dt.getMonth()===jsM;}));
+    const rec=store.records[per][emp.id];
+    const paid=new Set(rec.days.filter(d=>{const dt=new Date(d);return dt.getFullYear()===yr && dt.getMonth()===jsM;}));
+    const unpaid=new Set(rec.unpaid.filter(d=>{const dt=new Date(d);return dt.getFullYear()===yr && dt.getMonth()===jsM;}));
     for(let d=1;d<=tot;d++){
       const ds=`${yr}-${String(jsM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      row+=abs.has(ds)?`<td class="${isHoliday(ds)?'absent-holiday':'absent-day'}" title="Congé">C</td>`:'<td></td>';
+      if(paid.has(ds)) row+=`<td class="${isHoliday(ds)?'absent-holiday':'absent-day'}" title="Congé payé">C</td>`;
+      else if(unpaid.has(ds)) row+=`<td class="unpaid-day" title="Sans solde">S</td>`;
+      else row+='<td></td>';
     }
     tr.innerHTML=row;monthTableBody.appendChild(tr);
   });
@@ -322,27 +321,36 @@ document.getElementById('closeMonthBtn').onclick=()=>{monthModal.classList.remov
 /* ---------- Modale congés individuels ---------- */
 const manageModal=document.getElementById('manageModal'),
       modalTitle=document.getElementById('modalTitle'),
-      daysListUl=document.getElementById('daysList');
+      daysListUl=document.getElementById('daysList'),
+      unpaidCheckbox=document.getElementById('unpaidCheckbox');
 let currentEmpId=null;
 
 function openModal(id){
   currentEmpId=id;
   modalTitle.textContent=`Gérer les congés – ${employeeName(id)}`;
-  initDateWheels();
+  initDateWheels();unpaidCheckbox.checked=false;
   renderDaysList();
   manageModal.classList.add('show');manageModal.setAttribute('aria-hidden','false');
 }
 document.getElementById('closeModalBtn').onclick=()=>{manageModal.classList.remove('show');manageModal.setAttribute('aria-hidden','true');};
 
 function renderDaysList(){
-  const per=yearSelect.value,days=store.records?.[per]?.[currentEmpId]?.days||[];
+  const per=yearSelect.value;
+  ensureRecord(per,currentEmpId);
+  const rec=store.records[per][currentEmpId];
   daysListUl.innerHTML='';
-  days.slice().sort().forEach(d=>{
-    const li=document.createElement('li');li.textContent=d+(isHoliday(d)?' (férié)':'');
-    const del=document.createElement('button');del.textContent='Suppr';del.className='danger';
-    del.onclick=()=>{if(confirm('Supprimer ce jour ?')){store.records[per][currentEmpId].days=store.records[per][currentEmpId].days.filter(x=>x!==d);saveStore();renderDaysList();renderEmployeeTable();renderCalendar();}};
-    li.appendChild(del);daysListUl.appendChild(li);
-  });
+  [...rec.days.map(d=>({d,type:'payé'})), ...rec.unpaid.map(d=>({d,type:'sans solde'}))]
+    .sort((a,b)=>a.d.localeCompare(b.d))
+    .forEach(({d,type})=>{
+      const li=document.createElement('li');li.textContent=`${d} (${type}${isHoliday(d)?', férié':''})`;
+      const del=document.createElement('button');del.textContent='Suppr';del.className='danger';
+      del.onclick=()=>{if(confirm('Supprimer ce jour ?')){
+        rec.days=rec.days.filter(x=>x!==d);
+        rec.unpaid=rec.unpaid.filter(x=>x!==d);
+        saveStore();renderDaysList();renderEmployeeTable();renderCalendar();
+      }};
+      li.appendChild(del);daysListUl.appendChild(li);
+    });
 }
 
 document.getElementById('addPeriodBtn').onclick=()=>{
@@ -352,9 +360,10 @@ document.getElementById('addPeriodBtn').onclick=()=>{
   if(ed<st)return alert('Retour après départ');
   const per=yearSelect.value,days=validateDays(currentEmpId,per,getWorkingDays(st,ed));
   if(!days.length)return alert('Aucun jour valable');
-  store.records[per]=store.records[per]||{};
-  store.records[per][currentEmpId]=store.records[per][currentEmpId]||{days:[]};
-  store.records[per][currentEmpId].days.push(...days);
+  ensureRecord(per,currentEmpId);
+  const rec=store.records[per][currentEmpId];
+  if(unpaidCheckbox.checked) rec.unpaid.push(...days);
+  else rec.days.push(...days);
   saveStore();renderDaysList();renderEmployeeTable();renderCalendar();
 };
 
@@ -369,10 +378,12 @@ document.getElementById('addEmployeeBtn').onclick=()=>{
 /* ---------- Export CSV ---------- */
 document.getElementById('exportCsvBtn').onclick=()=>{
   const per=yearSelect.value;
-  let csv='Salarié,Acquis,Pris,Restant,Jours détaillés\n';
+  let csv='Salarié,Acquis,Pris_Payés,Restant,Payés détaillés,SansSolde détaillés\n';
   activeEmployees(per).forEach(emp=>{
-    const acq=acquired(emp.id,per),tk=taken(emp.id,per),rest=acq-tk,det=(store.records?.[per]?.[emp.id]?.days||[]).join(' ');
-    csv+=`${emp.name},${acq},${tk},${rest},${det}\n`;
+    ensureRecord(per,emp.id);
+    const rec=store.records[per][emp.id];
+    const acq=acquired(emp.id,per),tk=taken(emp.id,per),rest=acq-tk;
+    csv+=`${emp.name},${acq},${tk},${rest},"${rec.days.join(' ')}","${rec.unpaid.join(' ')}"\n`;
   });
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`conges_${per}.csv`;link.click();
@@ -381,36 +392,23 @@ document.getElementById('exportCsvBtn').onclick=()=>{
 /* ---------- Export / Import JSON ---------- */
 document.getElementById('exportJsonBtn').onclick=()=>{
   const blob=new Blob([JSON.stringify(store)],{type:'application/json'});
-  const link=document.createElement('a');
-  link.href=URL.createObjectURL(blob);
-  link.download='conges_backup.json';
-  link.click();
+  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='conges_backup.json';link.click();
 };
-
-document.getElementById('importJsonBtn').onclick=()=>
-  document.getElementById('importJsonInput').click();
-
+document.getElementById('importJsonBtn').onclick=()=>document.getElementById('importJsonInput').click();
 document.getElementById('importJsonInput').onchange=e=>{
-  const file=e.target.files[0];
-  if(!file)return;
+  const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=()=>{
-    try{
-      const data=JSON.parse(reader.result);
-      // Option : vérifier data.schemaVersion et migrer si besoin
-      localStorage.setItem(LS_KEY, JSON.stringify(data));
-      location.reload();
-    }catch(err){
-      alert('Fichier JSON invalide');
-    }
-  };
-  reader.readAsText(file);
+    try{const data=JSON.parse(reader.result);localStorage.setItem(LS_KEY,JSON.stringify(data));location.reload();}
+    catch(err){alert('Fichier JSON invalide');}
+  };reader.readAsText(file);
 };
 
 /* ---------- Impression ---------- */
 document.getElementById('printBtn').onclick=()=>window.print();
 
 /* ---------- Init ---------- */
+if(!store.employees.length){store.employees=[{id:'e1',name:'Alice Dupont',joined:2025}];}
 populateYearOptions();renderEmployeeTable();renderCalendar();
 </script>
 </body>
